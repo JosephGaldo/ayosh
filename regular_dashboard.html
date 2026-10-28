@@ -34,10 +34,10 @@
         .alert-banner-card { padding: 15px 25px; border-radius: 4px; box-shadow: 0 2px 6px rgba(0,0,0,0.03); display: flex; align-items: center; justify-content: space-between; font-size: 14px; font-weight: 600; line-height: 1.4; border-left: 5px solid #2b8a3e; background-color: #ebfbee; color: #2b8a3e; }
         
         /* Dynamic Expiration Severity Color Modifiers */
-        .alert-severity-expired { background-color: #fff5f5; border-color: #860000; color: #860000; animation: flashGlow 2s infinite; }
         .alert-severity-yellow { background-color: #fff9db; border-color: #f59f00; color: #f59f00; }
         .alert-severity-orange { background-color: #fff4e6; border-color: #fd7e14; color: #fd7e14; }
         .alert-severity-red { background-color: #fff5f5; border-color: #FF0000; color: #FF0000; animation: flashGlow 2s infinite; }
+        .alert-severity-expired { background-color: #fff5f5; border-color: #860000; color: #860000; animation: flashGlow 2s infinite; }
         
         @keyframes flashGlow {
             0% { box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.2); }
@@ -158,13 +158,13 @@
                 </div>
                 <div class="filter-group">
                     <label>Expiration Severity</label>
-                    <select id="filterExpSeverity" class="form-control" onchange="applyFiltersAndSort()">
+                    <select id="severityFilterSelect" class="form-control" onchange="applyFiltersAndSort()">
                         <option value="all">All Items</option>
                         <option value="expired">Expired (≤0 days)</option>
                         <option value="critical">Critical (≤7 days)</option>
                         <option value="urgent">Urgent (≤15 days)</option>
                         <option value="notice">Notice (≤30 days)</option>
-                        <option value="ok">Not Critical (&gt;30 days)</option>
+                        <option value="ok">Not Critical (>30 days)</option>
                     </select>
                 </div>
                 <div class="filter-group" style="margin-left: auto; padding-top: 15px;">
@@ -199,15 +199,15 @@
                 <table id="recordsTable">
                     <thead>
                         <tr>
-                            <th onclick="sortGridByField('docType')">Document Type</th>
-                            <th onclick="sortGridByField('docName')">Document Name</th>
-                            <th onclick="sortGridByField('quarter')">Quarter</th>
-                            <th onclick="sortGridByField('year')">Year</th>
+                            <th onclick="sortGridByField('docType')" id="th-docType">Document Type<span id="sort-docType"></span></th>
+                            <th onclick="sortGridByField('docName')" id="th-docName">Document Name<span id="sort-docName"></span></th>
+                            <th onclick="sortGridByField('quarter')" id="th-quarter">Quarter<span id="sort-quarter"></span></th>
+                            <th onclick="sortGridByField('year')" id="th-year">Year<span id="sort-year"></span></th>
                             <th>File Asset</th>
-                            <th onclick="sortGridByField('dateIssued')">Date Issued</th>
-                            <th onclick="sortGridByField('expirationDate')">Expiration Date</th>
-                            <th onclick="sortGridByField('uploadedDate')">Uploaded Date</th>
-                            <th onclick="sortGridByField('status')">Status</th>
+                            <th onclick="sortGridByField('dateIssued')" id="th-dateIssued">Date Issued<span id="sort-dateIssued"></span></th>
+                            <th onclick="sortGridByField('expirationDate')" id="th-expirationDate">Expiration Date<span id="sort-expirationDate"></span></th>
+                            <th onclick="sortGridByField('uploadedDate')" id="th-uploadedDate">Uploaded Date<span id="sort-uploadedDate"></span></th>
+                            <th onclick="sortGridByField('status')" id="th-status">Status<span id="sort-status"></span></th>
                             <th>Remarks / Note</th>
                             <th>Admin Remarks</th>
                             <th style="cursor: default; text-align: center; min-width: 140px;">Actions</th>
@@ -256,7 +256,8 @@
 </body>
 <script>
     let activeBranch = "";
-    let activeFieldSort = "docType"; 
+    let activeFieldSort = "docType";
+    let currentSortAscending = true;
     let globalActiveIndex = null;
     const MOCKAPI_URL = "https://6ad258cd66cd28aed82dea43.mockapi.io/submissions";
 
@@ -295,16 +296,56 @@
         }
     }
 
+    // --- EXPIRATION SEVERITY CALCULATOR ---
+    function getExpirationSeverity(expirationDate) {
+        if (!expirationDate) return { severity: 'ok', days: null, label: 'N/A' };
+
+        const phTime = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Manila"}));
+        const today = new Date(phTime.getFullYear(), phTime.getMonth(), phTime.getDate());
+
+        const expParts = expirationDate.split('-');
+        const expDate = new Date(parseInt(expParts[0]), parseInt(expParts[1]) - 1, parseInt(expParts[2]));
+
+        const timeDelta = expDate.getTime() - today.getTime();
+        const daysRemaining = Math.ceil(timeDelta / (1000 * 60 * 60 * 24));
+
+        if (daysRemaining <= 0) return { severity: 'expired', days: daysRemaining, label: 'Expired' };
+        if (daysRemaining <= 7) return { severity: 'critical', days: daysRemaining, label: 'Critical' };
+        if (daysRemaining <= 15) return { severity: 'urgent', days: daysRemaining, label: 'Urgent' };
+        if (daysRemaining <= 30) return { severity: 'notice', days: daysRemaining, label: 'Notice' };
+        return { severity: 'ok', days: daysRemaining, label: 'Not Critical' };
+    }
+
+    function getSortIcon(fieldName) {
+        if (activeFieldSort !== fieldName) return '';
+        return currentSortAscending ? ' ▲' : ' ▼';
+    }
+
+    function updateTableHeaders() {
+        const headers = ['docType', 'docName', 'quarter', 'year', 'dateIssued', 'expirationDate', 'uploadedDate', 'status'];
+        headers.forEach(field => {
+            const iconSpan = document.getElementById('sort-' + field);
+            if (iconSpan) {
+                iconSpan.textContent = getSortIcon(field);
+            }
+        });
+    }
+
     function sortGridByField(field) {
-        activeFieldSort = field;
+        if (activeFieldSort === field) {
+            currentSortAscending = !currentSortAscending;
+        } else {
+            activeFieldSort = field;
+            currentSortAscending = true;
+        }
         applyFiltersAndSort();
     }
 
     function resetAllFilters() {
-        document.getElementById('filterIssued').value = '';
-        document.getElementById('filterExpiry').value = '';
         document.getElementById('statusFilterSelect').value = 'all';
-        document.getElementById('sortOrderSelect').value = 'asc';
+        document.getElementById('severityFilterSelect').value = 'all';
+        activeFieldSort = 'docType';
+        currentSortAscending = true;
         applyFiltersAndSort();
     }
 
@@ -312,11 +353,11 @@
     function evaluateExpirationAlerts(records) {
         const alertsContainer = document.getElementById('expirationAlertsPanelContainer');
         if (!alertsContainer) return;
-        
-        alertsContainer.innerHTML = ''; 
+
+        alertsContainer.innerHTML = '';
 
         const trackedRecords = records.filter(r => (r.status === 'approved' || r.status === 'pending') && r.expirationDate);
-        
+
         const phTime = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Manila"}));
         const today = new Date(phTime.getFullYear(), phTime.getMonth(), phTime.getDate());
 
@@ -325,18 +366,17 @@
         trackedRecords.forEach(doc => {
             const expParts = doc.expirationDate.split('-');
             const expDate = new Date(parseInt(expParts[0]), parseInt(expParts[1]) - 1, parseInt(expParts[2]));
-            
+
             const timeDelta = expDate.getTime() - today.getTime();
             const daysRemaining = Math.ceil(timeDelta / (1000 * 60 * 60 * 24));
 
-            // *** NEW: Include expired documents ***
             if (daysRemaining <= 30) {
                 let severityClass = "alert-severity-yellow";
                 let alertBadgeLabel = "⚠️ Notice";
                 let timeDescriptor = daysRemaining + " days remaining";
 
                 if (daysRemaining <= 0) {
-                    severityClass = "alert-severity-expired";
+                    severityClass = "alert-severity-red";
                     alertBadgeLabel = "❌ EXPIRED";
                     timeDescriptor = Math.abs(daysRemaining) + " days overdue";
                 } else if (daysRemaining === 0) {
@@ -355,7 +395,7 @@
                     <div class="alert-banner-card ${severityClass}">
                         <div>
                             <strong>${alertBadgeLabel}:</strong> Your document
-                            <u>${doc.docName}</u> (${doc.docType})${statusLabelText} is nearing expiration [${timeDescriptor}, Target: ${doc.expirationDate}].
+                            <u>${doc.docName}</u> (${doc.docType})${statusLabelText} ${daysRemaining <= 0 ? 'has expired' : 'is nearing expiration'} [${timeDescriptor}, Target: ${doc.expirationDate}].
                         </div>
                     </div>
                 `;
@@ -382,24 +422,28 @@
         try {
             const response = await fetch(MOCKAPI_URL);
             const allSubmissions = await response.json();
-            
+
             let records = allSubmissions.filter(doc => doc.branch === activeBranch);
 
-            const fIssued = document.getElementById('filterIssued').value;
-            const fExpiry = document.getElementById('filterExpiry').value;
             const fStatus = document.getElementById('statusFilterSelect').value;
-            const sortDirection = document.getElementById('sortOrderSelect').value;
+            const fSeverity = document.getElementById('severityFilterSelect').value;
 
-            if (fIssued) records = records.filter(d => d.dateIssued === fIssued);
-            if (fExpiry) records = records.filter(d => d.expirationDate === fExpiry);
             if (fStatus !== 'all') records = records.filter(d => d.status === fStatus);
+
+            if (fSeverity !== 'all') {
+                records = records.filter(d => {
+                    const severity = getExpirationSeverity(d.expirationDate);
+                    return severity.severity === fSeverity;
+                });
+            }
 
             records.sort((a, b) => {
                 let valA = (a[activeFieldSort] || '').toString().toLowerCase();
                 let valB = (b[activeFieldSort] || '').toString().toLowerCase();
-                return sortDirection === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+                return currentSortAscending ? valA.localeCompare(valB) : valB.localeCompare(valA);
             });
 
+            updateTableHeaders();
             evaluateExpirationAlerts(allSubmissions.filter(doc => doc.branch === activeBranch));
             renderTableMatrix(records);
         } catch (error) {
