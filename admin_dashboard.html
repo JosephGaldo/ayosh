@@ -209,6 +209,16 @@
                         <option value="declined">Declined Logs</option>
                     </select>
                 </div>
+                <div class="filter-group">
+                    <label>Expiration Severity</label>
+                    <select id="filterExpSeverity" class="form-control" onchange="processMasterStateEngine()">
+                        <option value="all">All Items</option>
+                        <option value="critical">Critical (≤7 days)</option>
+                        <option value="urgent">Urgent (≤15 days)</option>
+                        <option value="notice">Notice (≤30 days)</option>
+                        <option value="ok">Not Critical (&gt;30 days)</option>
+                    </select>
+                </div>
             </div>
 
           </section>
@@ -337,6 +347,8 @@
                     </tbody>
                 </table>
             </div>
+            <!-- *** NEW: Pagination Controls *** -->
+            <div id="paginationControls"></div>
         </section>
     </main>
 
@@ -371,6 +383,13 @@
     let sortDirectionAsc = true;
     let reviewTargetSubmissionId = null;
 
+    // *** NEW: Pagination & Notification Variables ***
+    let currentPage = 1;
+    let rowsPerPage = 5;
+    let allFilteredRecords = [];
+    let notificationCheckInterval = null;
+    const MOCKAPI_URL = "https://6ad258cd66cd28aed82dea43.mockapi.io/submissions";
+
     function toggleProfileDropdown(e) { e.stopPropagation(); const drop = document.getElementById('profileDropdown'); drop.style.display = drop.style.display === 'block' ? 'none' : 'block'; }
     function toggleNotificationPanel(e) { 
         e.stopPropagation(); 
@@ -404,9 +423,25 @@
         }
     }
 
+    // *** NEW: Calculate days until expiration and severity ***
+    function getExpirationSeverity(expirationDateStr) {
+        const [expYear, expMonth, expDay] = expirationDateStr.split('-');
+        const expDate = new Date(expYear, expMonth - 1, expDay, 23, 59, 59, 999);
+        const today = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Manila"}));
+        today.setHours(0, 0, 0, 0);
+
+        const daysUntilExp = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+
+        if (daysUntilExp <= 7) return { severity: 'critical', days: daysUntilExp, label: 'CRITICAL' };
+        if (daysUntilExp <= 15) return { severity: 'urgent', days: daysUntilExp, label: 'URGENT' };
+        if (daysUntilExp <= 30) return { severity: 'notice', days: daysUntilExp, label: 'NOTICE' };
+        return { severity: 'ok', days: daysUntilExp, label: 'OK' };
+    }
+
     function sortGridByField(field) {
-        if (activeFieldSort === field) { sortDirectionAsc = !sortDirectionAsc; } 
+        if (activeFieldSort === field) { sortDirectionAsc = !sortDirectionAsc; }
         else { activeFieldSort = field; sortDirectionAsc = true; }
+        currentPage = 1; // Reset to first page on sort
         processMasterStateEngine();
     }
 
@@ -450,28 +485,89 @@
         branchFilter.value = 'all';
     }
 
+    // *** NEW: Export table to Excel ***
+    function exportTableToExcel() {
+        if (allFilteredRecords.length === 0) {
+            alert('No records to export. Please adjust filters.');
+            return;
+        }
+
+        let csvContent = "Region,Branch,Document Type,Document Name,Quarter,Year,File Name,Date Issued,Expiration Date,Uploaded Date,Status,Remarks,Admin Remarks\n";
+
+        allFilteredRecords.forEach(record => {
+            const rowData = [
+                record.region || '',
+                record.branch || '',
+                record.docType || '',
+                record.docName || '',
+                record.quarter || '',
+                record.year || '',
+                record.fileName || '',
+                record.dateIssued || '',
+                record.expirationDate || '',
+                record.uploadedDate || '',
+                record.status || '',
+                (record.remarks || '').replace(/"/g, '""'),
+                (record.adminRemarks || '').replace(/"/g, '""')
+            ];
+            csvContent += '"' + rowData.join('","') + '"\n';
+        });
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `AYOSH_Compliance_Report_${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    // *** NEW: Updated Notifications with Dismiss & Clear All ***
     function buildStreamNotifications(submissions) {
         const badge = document.getElementById('notifCountBadge');
         const container = document.getElementById('notifPanelContents');
         const pendingItems = submissions.filter(d => d.status === "pending");
-        const alreadySeen = localStorage.getItem('ayosh_admin_notif_seen') === 'true';
 
         if(pendingItems.length > 0) {
-            if (!alreadySeen) {
-                badge.textContent = pendingItems.length;
-                badge.style.display = 'inline-block';
-            }
-            container.innerHTML = '';
-            pendingItems.forEach(item => {
+            badge.textContent = pendingItems.length;
+            badge.style.display = 'inline-block';
+
+            container.innerHTML = '<div style="max-height: 300px; overflow-y: auto;">';
+            pendingItems.forEach((item, idx) => {
                 const div = document.createElement('div');
                 div.className = "notif-item";
-                div.innerHTML = `🔔 <strong>${item.branch} Branch</strong> submitted document type <strong>${item.docType}</strong> for your approval.`;
+                div.id = `notif-${item.id}`;
+                div.innerHTML = `
+                    🔔 <strong>${item.branch} Branch</strong> submitted <strong>${item.docType}</strong>
+                    <button onclick="dismissNotification(${item.id})" style="float: right; background: none; border: none; cursor: pointer; color: #666; font-size: 16px; padding: 0;">✕</button>
+                `;
                 container.appendChild(div);
             });
+            container.innerHTML += '</div>';
+
+            // Add Clear All button
+            const clearAllBtn = document.createElement('div');
+            clearAllBtn.style.cssText = 'padding: 10px 15px; border-top: 1px solid #eeeeee; text-align: center; cursor: pointer; background: #f8f9fa;';
+            clearAllBtn.innerHTML = '<button onclick="clearAllNotifications()" style="background: none; border: none; color: #c92a2a; font-weight: 600; cursor: pointer;">Clear All</button>';
+            container.appendChild(clearAllBtn);
         } else {
             badge.style.display = 'none';
             container.innerHTML = `<div class="notif-empty">No unread branch document submission notifications logged.</div>`;
         }
+    }
+
+    function dismissNotification(submissionId) {
+        const notifEl = document.getElementById(`notif-${submissionId}`);
+        if (notifEl) notifEl.style.display = 'none';
+    }
+
+    function clearAllNotifications() {
+        const container = document.getElementById('notifPanelContents');
+        const notifs = container.querySelectorAll('[id^="notif-"]');
+        notifs.forEach(n => n.style.display = 'none');
+        document.getElementById('notifCountBadge').style.display = 'none';
     }
 
     function calculateAnalyticsDashboard(filteredRecords) {
@@ -596,7 +692,7 @@
             console.log('📂 Fetching entry:', formId, entryId);
 
             // Note: Bearer token needs to be added here
-            const COGNITO_BEARER_TOKEN = "eyJhbGciOiJIUzI1NiIsImtpZCI6Ijg4YmYzNWNmLWM3ODEtNDQ3ZC1hYzc5LWMyODczMjNkNzg3ZCIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25JZCI6Ijc1MzExYjUwLTcwOTctNDA3ZC1iMzMzLTU4OTIzMzY4OTFhOCIsImludGVncmF0aW9uSWQiOiJhMWM2OGEwNi01NWQ1LTRjMmEtOTE2ZC01MWIyOWQ5YmQzNjIiLCJjbGllbnRJZCI6IjNkZTNmODMwLWNiYzctNDZlNi1iOTZlLTVmMDE2NzcyMTgzMCIsImp0aSI6ImMyMGY3NGQyLTRmMTEtNDcyNi1iOWI4LTM1NGI2NWE0ZTJhOSIsImlhdCI6MTc5MjYzMTA5OSwiaXNzIjoiaHR0cHM6Ly93d3cuY29nbml0b2Zvcm1zLmNvbS8iLCJhdWQiOiJhcGkifQ.9VLxhRBnarhyMmbRgufwxgYH-s0RlrXw2Su2F-3sg-M"; // ⭐ Same token as form submission
+            const COGNITO_BEARER_TOKEN = "REPLACE_WITH_YOUR_BEARER_TOKEN"; // ⭐ Same token as form submission
 
             const response = await fetch(`https://www.cognitoforms.com/api/forms/${formId}/entries/${entryId}`, {
                 method: 'GET',
@@ -665,11 +761,9 @@
 
         // --- UPDATED MASTER ENGINE FOR LOCALSTORAGE MULTI-LAYER RE-FILTERING ---
     async function processMasterStateEngine() {
-        const MOCKAPI_URL = "https://6ad258cd66cd28aed82dea43.mockapi.io/submissions";
-        
         const response = await fetch(MOCKAPI_URL);
         const allSubmissions = await response.json();
-        
+
         buildStreamNotifications(allSubmissions);
 
         let filtered = [...allSubmissions];
@@ -678,6 +772,7 @@
         const fQuarter = document.getElementById('filterQuarter').value;
         const fYear = document.getElementById('filterYear').value;
         const fStatus = document.getElementById('filterStatus').value;
+        const fExpSeverity = document.getElementById('filterExpSeverity').value;
 
         if (fRegion !== 'all') filtered = filtered.filter(r => r.region === fRegion);
         if (fBranch !== 'all') filtered = filtered.filter(r => r.branch === fBranch);
@@ -685,28 +780,48 @@
         if (fYear !== 'all') filtered = filtered.filter(r => r.year === fYear);
         if (fStatus !== 'all') filtered = filtered.filter(r => r.status === fStatus);
 
+        // *** NEW: Expiration Severity Filter ***
+        if (fExpSeverity !== 'all') {
+            filtered = filtered.filter(r => {
+                const sev = getExpirationSeverity(r.expirationDate);
+                return sev.severity === fExpSeverity;
+            });
+        }
+
         filtered.sort((a, b) => {
             let valA = (a[activeFieldSort] || '').toString().toLowerCase();
             let valB = (b[activeFieldSort] || '').toString().toLowerCase();
             return sortDirectionAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
         });
 
+        // *** NEW: Store filtered records for export and pagination ***
+        allFilteredRecords = filtered;
+        currentPage = 1; // Reset to first page
+
         calculateAnalyticsDashboard(filtered);
         renderAdminLedgerRows(filtered);
     }
 
 
-          // --- UPDATED LAYOUT DATA ROW PAINTER WITH GEOGRAPHIC REGION COLUMN MATRIX ---
+          // --- UPDATED LAYOUT DATA ROW PAINTER WITH PAGINATION ---
     function renderAdminLedgerRows(records) {
         const tbody = document.getElementById('adminTableBody');
         tbody.innerHTML = '';
 
         if(records.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="14" class="no-data-msg">No multi-branch submissions match active criteria parameters.</td></tr>`; // CHANGED COLSPAN TO 14
+            tbody.innerHTML = `<tr><td colspan="14" class="no-data-msg">No multi-branch submissions match active criteria parameters.</td></tr>`;
+            updatePaginationControls(records.length);
             return;
         }
 
-        records.forEach(doc => {
+        // *** NEW: Pagination Logic ***
+        const totalPages = Math.ceil(records.length / rowsPerPage);
+        if (currentPage > totalPages) currentPage = totalPages;
+        const startIdx = (currentPage - 1) * rowsPerPage;
+        const endIdx = startIdx + rowsPerPage;
+        const pageRecords = records.slice(startIdx, endIdx);
+
+        pageRecords.forEach(doc => {
             let badgeClass = "status-pending";
             if (doc.status === "approved") badgeClass = "status-approved";
             if (doc.status === "declined") badgeClass = "status-declined";
@@ -745,12 +860,132 @@
 
         const checkboxes = document.querySelectorAll('.column-select-box input');
         checkboxes.forEach(cb => toggleColumnVisibility(cb));
+
+        // *** NEW: Update table headers with sort icons ***
+        updateTableHeaders();
+
+        // *** NEW: Update pagination controls ***
+        updatePaginationControls(records.length);
     }
 
+    // *** NEW: Pagination Controls ***
+    function updatePaginationControls(totalRecords) {
+        const totalPages = Math.ceil(totalRecords / rowsPerPage);
+        const paginationDiv = document.getElementById('paginationControls');
+
+        if (!paginationDiv) return;
+
+        let html = `<div style="display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #f8f9fa; border-top: 1px solid #eeeeee;">`;
+        html += `<div style="font-size: 13px; color: #666;">Showing <strong>${totalRecords === 0 ? 0 : (currentPage - 1) * rowsPerPage + 1}-${Math.min(currentPage * rowsPerPage, totalRecords)}</strong> of <strong>${totalRecords}</strong> records</div>`;
+
+        html += `<div style="display: flex; gap: 10px; align-items: center;">`;
+        html += `<select id="rowsPerPageSelect" class="form-control" style="width: 100px; padding: 6px;" onchange="changeRowsPerPage()">`;
+        html += `<option value="5" ${rowsPerPage === 5 ? 'selected' : ''}>5 rows</option>`;
+        html += `<option value="10" ${rowsPerPage === 10 ? 'selected' : ''}>10 rows</option>`;
+        html += `<option value="15" ${rowsPerPage === 15 ? 'selected' : ''}>15 rows</option>`;
+        html += `</select>`;
+
+        html += `<button onclick="previousPage()" ${currentPage === 1 ? 'disabled' : ''} style="padding: 6px 12px; border: 1px solid #ccc; background: #fff; cursor: pointer; border-radius: 4px;">← Previous</button>`;
+        html += `<span style="font-size: 13px; font-weight: 600; color: #666; min-width: 60px; text-align: center;">Page ${totalPages === 0 ? 0 : currentPage} of ${totalPages}</span>`;
+        html += `<button onclick="nextPage()" ${currentPage === totalPages || totalPages === 0 ? 'disabled' : ''} style="padding: 6px 12px; border: 1px solid #ccc; background: #fff; cursor: pointer; border-radius: 4px;">Next →</button>`;
+
+        html += `<button onclick="exportTableToExcel()" style="padding: 6px 12px; border: 1px solid #00008F; background: #00008F; color: white; cursor: pointer; border-radius: 4px; font-weight: 600;">⬇️ Export Excel</button>`;
+        html += `</div></div>`;
+
+        paginationDiv.innerHTML = html;
+    }
+
+    function changeRowsPerPage() {
+        const select = document.getElementById('rowsPerPageSelect');
+        rowsPerPage = parseInt(select.value);
+        currentPage = 1;
+        renderAdminLedgerRows(allFilteredRecords);
+    }
+
+    function previousPage() {
+        if (currentPage > 1) {
+            currentPage--;
+            renderAdminLedgerRows(allFilteredRecords);
+            document.querySelector('.table-responsive').scrollIntoView({ behavior: 'smooth' });
+        }
+    }
+
+    function nextPage() {
+        const totalPages = Math.ceil(allFilteredRecords.length / rowsPerPage);
+        if (currentPage < totalPages) {
+            currentPage++;
+            renderAdminLedgerRows(allFilteredRecords);
+            document.querySelector('.table-responsive').scrollIntoView({ behavior: 'smooth' });
+        }
+    }
+
+    // *** NEW: Helper function to show sort icons in headers ***
+    function getSortIcon(fieldName) {
+        if (activeFieldSort !== fieldName) return ''; // No icon if not sorted
+        return sortDirectionAsc ? ' ▲' : ' ▼'; // Arrow icon for sort direction
+    }
+
+    // *** NEW: Update all column headers with sort icons ***
+    function updateTableHeaders() {
+        const headerMap = {
+            'region': document.querySelector('th:nth-child(1)'),
+            'branch': document.querySelector('th:nth-child(2)'),
+            'docType': document.querySelector('th:nth-child(3)'),
+            'docName': document.querySelector('th:nth-child(4)'),
+            'quarter': document.querySelector('th:nth-child(5)'),
+            'year': document.querySelector('th:nth-child(6)'),
+            'dateIssued': document.querySelector('th:nth-child(8)'),
+            'expirationDate': document.querySelector('th:nth-child(9)'),
+            'uploadedDate': document.querySelector('th:nth-child(10)'),
+            'status': document.querySelector('th:nth-child(11)')
+        };
+
+        // Reset all headers
+        Object.keys(headerMap).forEach(field => {
+            if (headerMap[field]) {
+                const text = headerMap[field].textContent.replace(' ▲', '').replace(' ▼', '');
+                headerMap[field].textContent = text + getSortIcon(field);
+            }
+        });
+    }
+
+    // *** NEW: Live Notification Polling with Error Handling ***
+    function startNotificationPolling() {
+        notificationCheckInterval = setInterval(async () => {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+                const response = await fetch(MOCKAPI_URL, {
+                    signal: controller.signal,
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                clearTimeout(timeoutId);
+
+                if (response.ok) {
+                    const allSubmissions = await response.json();
+                    if (Array.isArray(allSubmissions)) {
+                        buildStreamNotifications(allSubmissions);
+                    }
+                } else {
+                    console.warn('Notification polling response not ok:', response.status);
+                }
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    console.warn('Notification polling timeout');
+                } else {
+                    console.warn('Notification polling error (non-critical):', error.message);
+                }
+            }
+        }, 8000); // Check every 8 seconds (between 5-10)
+    }
 
     document.addEventListener("DOMContentLoaded", function() {
         setupAdminYearDropdown();
         processMasterStateEngine();
+        startNotificationPolling(); // *** NEW: Start live notifications ***
     });
 </script>
 </html>
