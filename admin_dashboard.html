@@ -542,9 +542,11 @@
         const badge = document.getElementById('notifCountBadge');
         const container = document.getElementById('notifPanelContents');
 
-        // Filter pending items excluding session-dismissed ones
+        // Filter only NEW pending items excluding session-dismissed ones and those with admin feedback
         const pendingItems = submissions.filter(d =>
-            d.status === "pending" && !sessionDismissedNotifs.includes(d.id.toString())
+            d.status === "pending" &&
+            !sessionDismissedNotifs.includes(d.id.toString()) &&
+            (!d.adminRemarks || d.adminRemarks.trim() === '')
         );
 
         if(pendingItems.length > 0) {
