@@ -34,6 +34,7 @@
         .alert-banner-card { padding: 15px 25px; border-radius: 4px; box-shadow: 0 2px 6px rgba(0,0,0,0.03); display: flex; align-items: center; justify-content: space-between; font-size: 14px; font-weight: 600; line-height: 1.4; border-left: 5px solid #2b8a3e; background-color: #ebfbee; color: #2b8a3e; }
         
         /* Dynamic Expiration Severity Color Modifiers */
+        .alert-severity-expired { background-color: #fff5f5; border-color: #860000; color: #860000; animation: flashGlow 2s infinite; }
         .alert-severity-yellow { background-color: #fff9db; border-color: #f59f00; color: #f59f00; }
         .alert-severity-orange { background-color: #fff4e6; border-color: #fd7e14; color: #fd7e14; }
         .alert-severity-red { background-color: #fff5f5; border-color: #FF0000; color: #FF0000; animation: flashGlow 2s infinite; }
@@ -147,13 +148,6 @@
         <section class="control-panel">
             <div class="toolbar-row">
                 <div class="filter-group">
-                    <label>Sort Ordering</label>
-                    <select id="sortOrderSelect" class="form-control" onchange="applyFiltersAndSort()">
-                        <option value="asc">Ascending Order (A-Z)</option>
-                        <option value="desc">Descending Order (Z-A)</option>
-                    </select>
-                </div>
-                <div class="filter-group">
                     <label>Status Filter</label>
                     <select id="statusFilterSelect" class="form-control" onchange="applyFiltersAndSort()">
                         <option value="all">Show All Statuses</option>
@@ -163,12 +157,15 @@
                     </select>
                 </div>
                 <div class="filter-group">
-                    <label>Date Issued Match</label>
-                    <input type="date" id="filterIssued" class="form-control" onchange="applyFiltersAndSort()">
-                </div>
-                <div class="filter-group">
-                    <label>Expiration Match</label>
-                    <input type="date" id="filterExpiry" class="form-control" onchange="applyFiltersAndSort()">
+                    <label>Expiration Severity</label>
+                    <select id="filterExpSeverity" class="form-control" onchange="applyFiltersAndSort()">
+                        <option value="all">All Items</option>
+                        <option value="expired">Expired (≤0 days)</option>
+                        <option value="critical">Critical (≤7 days)</option>
+                        <option value="urgent">Urgent (≤15 days)</option>
+                        <option value="notice">Notice (≤30 days)</option>
+                        <option value="ok">Not Critical (&gt;30 days)</option>
+                    </select>
                 </div>
                 <div class="filter-group" style="margin-left: auto; padding-top: 15px;">
                     <button class="btn btn-secondary" style="padding: 8px 15px;" onclick="resetAllFilters()">Reset Filters</button>
@@ -332,14 +329,19 @@
             const timeDelta = expDate.getTime() - today.getTime();
             const daysRemaining = Math.ceil(timeDelta / (1000 * 60 * 60 * 24));
 
-            if (daysRemaining >= 0 && daysRemaining <= 30) {
+            // *** NEW: Include expired documents ***
+            if (daysRemaining <= 30) {
                 let severityClass = "alert-severity-yellow";
                 let alertBadgeLabel = "⚠️ Notice";
                 let timeDescriptor = daysRemaining + " days remaining";
 
-                if (daysRemaining === 0) timeDescriptor = "expires today";
-                
-                if (daysRemaining <= 7) {
+                if (daysRemaining <= 0) {
+                    severityClass = "alert-severity-expired";
+                    alertBadgeLabel = "❌ EXPIRED";
+                    timeDescriptor = Math.abs(daysRemaining) + " days overdue";
+                } else if (daysRemaining === 0) {
+                    timeDescriptor = "expires today";
+                } else if (daysRemaining <= 7) {
                     severityClass = "alert-severity-red";
                     alertBadgeLabel = "🛑 Critical Warning";
                 } else if (daysRemaining <= 15) {
