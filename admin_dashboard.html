@@ -105,6 +105,7 @@
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.6); backdrop-filter: blur(3px); display: flex; justify-content: center; align-items: center; z-index: 1000; }
         .modal-card { background-color: #ffffff; width: 90%; max-width: 500px; border-radius: 4px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); overflow: hidden; animation: slideUp 0.2s ease-out; }
         @keyframes slideUp { from { transform: translateY(15px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes slideOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(20px); } }
         .modal-header-title { padding: 20px 25px; border-bottom: 1px solid #eeeeee; font-size: 16px; font-weight: 700; color: #00008F; text-transform: uppercase; }
         .modal-body { padding: 25px; font-size: 14px; display: flex; flex-direction: column; gap: 15px; }
         .modal-footer { background-color: #f8f9fa; padding: 15px 25px; display: flex; justify-content: flex-end; gap: 12px; border-top: 1px solid #eeeeee; }
@@ -213,6 +214,7 @@
                     <label>Expiration Severity</label>
                     <select id="filterExpSeverity" class="form-control" onchange="processMasterStateEngine()">
                         <option value="all">All Items</option>
+                        <option value="expired">Expired (≤0 days)</option>
                         <option value="critical">Critical (≤7 days)</option>
                         <option value="urgent">Urgent (≤15 days)</option>
                         <option value="notice">Notice (≤30 days)</option>
@@ -234,6 +236,14 @@
         </p>
     </div>
     <div style="display: flex; flex-direction: column; gap: 12px; width: 100%; justify-content: center;">
+        <!-- EXPIRED Risk Bar (NEW) -->
+        <div style="display: grid; grid-template-columns: 100px 1fr 40px; align-items: center; gap: 12px;">
+            <div style="font-size: 12px; font-weight: 700; color: #860000; text-align: right;">Expired (≤0d)</div>
+            <div style="background: #e9ecef; height: 20px; border-radius: 4px; overflow: hidden;">
+                <div id="riskBarExpired" style="width: 0%; height: 100%; transition: width 0.4s ease; background-color: #860000;"></div>
+            </div>
+            <div id="riskCountExpired" style="font-size: 13px; font-weight: bold; color: #666;">0</div>
+        </div>
         <!-- Yellow Risk Bar -->
         <div style="display: grid; grid-template-columns: 100px 1fr 40px; align-items: center; gap: 12px;">
             <div style="font-size: 12px; font-weight: 700; color: #b27300; text-align: right;">Notice (≤30d)</div>
@@ -432,6 +442,7 @@
 
         const daysUntilExp = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
 
+        if (daysUntilExp <= 0) return { severity: 'expired', days: daysUntilExp, label: 'EXPIRED' };
         if (daysUntilExp <= 7) return { severity: 'critical', days: daysUntilExp, label: 'CRITICAL' };
         if (daysUntilExp <= 15) return { severity: 'urgent', days: daysUntilExp, label: 'URGENT' };
         if (daysUntilExp <= 30) return { severity: 'notice', days: daysUntilExp, label: 'NOTICE' };
@@ -524,24 +535,30 @@
         document.body.removeChild(link);
     }
 
-    // *** NEW: Updated Notifications with Dismiss & Clear All ***
+    // *** UPDATED: Notifications - Session-Only Dismiss (No localStorage) ***
+    let sessionDismissedNotifs = []; // Track dismissed notifications in current session only
+
     function buildStreamNotifications(submissions) {
         const badge = document.getElementById('notifCountBadge');
         const container = document.getElementById('notifPanelContents');
-        const pendingItems = submissions.filter(d => d.status === "pending");
+
+        // Filter pending items excluding session-dismissed ones
+        const pendingItems = submissions.filter(d =>
+            d.status === "pending" && !sessionDismissedNotifs.includes(d.id.toString())
+        );
 
         if(pendingItems.length > 0) {
             badge.textContent = pendingItems.length;
             badge.style.display = 'inline-block';
 
             container.innerHTML = '<div style="max-height: 300px; overflow-y: auto;">';
-            pendingItems.forEach((item, idx) => {
+            pendingItems.forEach((item) => {
                 const div = document.createElement('div');
                 div.className = "notif-item";
                 div.id = `notif-${item.id}`;
                 div.innerHTML = `
                     🔔 <strong>${item.branch} Branch</strong> submitted <strong>${item.docType}</strong>
-                    <button onclick="dismissNotification(${item.id})" style="float: right; background: none; border: none; cursor: pointer; color: #666; font-size: 16px; padding: 0;">✕</button>
+                    <button onclick="dismissNotification(${item.id})" style="float: right; background: none; border: none; cursor: pointer; color: #666; font-size: 16px; padding: 0; margin-top: 2px;">✕</button>
                 `;
                 container.appendChild(div);
             });
@@ -550,7 +567,7 @@
             // Add Clear All button
             const clearAllBtn = document.createElement('div');
             clearAllBtn.style.cssText = 'padding: 10px 15px; border-top: 1px solid #eeeeee; text-align: center; cursor: pointer; background: #f8f9fa;';
-            clearAllBtn.innerHTML = '<button onclick="clearAllNotifications()" style="background: none; border: none; color: #c92a2a; font-weight: 600; cursor: pointer;">Clear All</button>';
+            clearAllBtn.innerHTML = '<button onclick="clearAllNotifications()" style="background: none; border: none; color: #c92a2a; font-weight: 600; cursor: pointer; font-size: 13px;">🗑️ Clear All</button>';
             container.appendChild(clearAllBtn);
         } else {
             badge.style.display = 'none';
@@ -559,14 +576,46 @@
     }
 
     function dismissNotification(submissionId) {
+        // Add to session-only dismissed list (no localStorage)
+        if (!sessionDismissedNotifs.includes(submissionId.toString())) {
+            sessionDismissedNotifs.push(submissionId.toString());
+        }
+
+        // Remove from UI
         const notifEl = document.getElementById(`notif-${submissionId}`);
-        if (notifEl) notifEl.style.display = 'none';
+        if (notifEl) {
+            notifEl.style.animation = 'slideOut 0.3s ease-out';
+            setTimeout(() => {
+                if (notifEl.parentNode) notifEl.remove();
+            }, 300);
+        }
+
+        // Update badge count
+        const badge = document.getElementById('notifCountBadge');
+        const currentCount = parseInt(badge.textContent) || 0;
+        if (currentCount > 1) {
+            badge.textContent = currentCount - 1;
+        } else {
+            badge.style.display = 'none';
+        }
     }
 
     function clearAllNotifications() {
+        // Get all notifications and add to session-only dismissed list
         const container = document.getElementById('notifPanelContents');
         const notifs = container.querySelectorAll('[id^="notif-"]');
-        notifs.forEach(n => n.style.display = 'none');
+
+        notifs.forEach(notif => {
+            const id = notif.id.replace('notif-', '');
+            if (!sessionDismissedNotifs.includes(id)) {
+                sessionDismissedNotifs.push(id);
+            }
+            notif.style.animation = 'slideOut 0.3s ease-out';
+            setTimeout(() => {
+                if (notif.parentNode) notif.remove();
+            }, 300);
+        });
+
         document.getElementById('notifCountBadge').style.display = 'none';
     }
 
@@ -639,13 +688,14 @@
 
     
     // --- Paste this snippet directly inside the end of your calculateAnalyticsDashboard() function loop ---
-    let yellowRiskTotal = 0;
-    let orangeRiskTotal = 0;
+    let expiredRiskTotal = 0;
     let redRiskTotal = 0;
+    let orangeRiskTotal = 0;
+    let yellowRiskTotal = 0;
 
     // Isolate active target records context boundaries cleanly
     const pipelineTrackedItems = filteredRecords.filter(r => (r.status === 'approved' || r.status === 'pending') && r.expirationDate);
-    
+
     // Core calendar timezone normalizer baseline checks
     const phTimeCurrent = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Manila"}));
     const localTodayTimestamp = new Date(phTimeCurrent.getFullYear(), phTimeCurrent.getMonth(), phTimeCurrent.getDate());
@@ -658,24 +708,30 @@
         const deltaMillisecondsDifference = calculatedExpiryDate.getTime() - localTodayTimestamp.getTime();
         const activeDaysDeltaRemaining = Math.ceil(deltaMillisecondsDifference / (1000 * 60 * 60 * 24));
 
-        if (activeDaysDeltaRemaining >= 0 && activeDaysDeltaRemaining <= 30) {
-            if (activeDaysDeltaRemaining <= 7) {
-                redRiskTotal++;
-            } else if (activeDaysDeltaRemaining <= 15) {
-                orangeRiskTotal++;
-            } else {
-                yellowRiskTotal++;
-            }
+        // *** NEW: Added Expired category ***
+        if (activeDaysDeltaRemaining <= 0) {
+            expiredRiskTotal++;
+        } else if (activeDaysDeltaRemaining <= 7) {
+            redRiskTotal++;
+        } else if (activeDaysDeltaRemaining <= 15) {
+            orangeRiskTotal++;
+        } else if (activeDaysDeltaRemaining <= 30) {
+            yellowRiskTotal++;
         }
     });
 
     // Compute layout percentage scaling parameters dynamically to maintain fluid chart bars sizing behavior
-    const cumulativeActiveRiskSum = yellowRiskTotal + orangeRiskTotal + redRiskTotal;
-    const computedYellowBarPercentage = cumulativeActiveRiskSum > 0 ? (yellowRiskTotal / cumulativeActiveRiskSum) * 100 : 0;
-    const computedOrangeBarPercentage = cumulativeActiveRiskSum > 0 ? (orangeRiskTotal / cumulativeActiveRiskSum) * 100 : 0;
+    const cumulativeActiveRiskSum = expiredRiskTotal + redRiskTotal + orangeRiskTotal + yellowRiskTotal;
+    const computedExpiredBarPercentage = cumulativeActiveRiskSum > 0 ? (expiredRiskTotal / cumulativeActiveRiskSum) * 100 : 0;
     const computedRedBarPercentage = cumulativeActiveRiskSum > 0 ? (redRiskTotal / cumulativeActiveRiskSum) * 100 : 0;
+    const computedOrangeBarPercentage = cumulativeActiveRiskSum > 0 ? (orangeRiskTotal / cumulativeActiveRiskSum) * 100 : 0;
+    const computedYellowBarPercentage = cumulativeActiveRiskSum > 0 ? (yellowRiskTotal / cumulativeActiveRiskSum) * 100 : 0;
 
     // Inject metrics text properties and dimensions dynamically to the layout nodes
+    // *** NEW: Added Expired display ***
+    document.getElementById('riskCountExpired').textContent = expiredRiskTotal;
+    document.getElementById('riskBarExpired').style.width = computedExpiredBarPercentage + "%";
+
     document.getElementById('riskCountYellow').textContent = yellowRiskTotal;
     document.getElementById('riskBarYellow').style.width = computedYellowBarPercentage + "%";
 
