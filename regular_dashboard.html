@@ -435,7 +435,7 @@
                 let timeDescriptor = daysRemaining + " days remaining";
 
                 if (daysRemaining <= 0) {
-                    severityClass = "alert-severity-red";
+                    severityClass = "alert-severity-expired";
                     alertBadgeLabel = "❌ EXPIRED";
                     timeDescriptor = Math.abs(daysRemaining) + " days overdue";
                 } else if (daysRemaining === 0) {
