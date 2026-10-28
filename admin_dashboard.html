@@ -569,7 +569,7 @@
                 div.id = `notif-${item.id}`;
                 div.innerHTML = `
                     🔔 <strong>${item.branch} Branch</strong> submitted <strong>${item.docType}</strong>
-                    <button onclick="dismissNotification(${item.id})" style="float: right; background: none; border: none; cursor: pointer; color: #666; font-size: 16px; padding: 0; margin-top: 2px;">✕</button>
+                    <button onclick="event.stopPropagation(); dismissNotification(${item.id})" style="float: right; background: none; border: none; cursor: pointer; color: #666; font-size: 16px; padding: 0; margin-top: 2px;">✕</button>
                 `;
                 container.appendChild(div);
             });
@@ -578,7 +578,7 @@
             // Add Clear All button
             const clearAllBtn = document.createElement('div');
             clearAllBtn.style.cssText = 'padding: 10px 15px; border-top: 1px solid #eeeeee; text-align: center; cursor: pointer; background: #f8f9fa;';
-            clearAllBtn.innerHTML = '<button onclick="clearAllNotifications()" style="background: none; border: none; color: #c92a2a; font-weight: 600; cursor: pointer; font-size: 13px;">🗑️ Clear All</button>';
+            clearAllBtn.innerHTML = '<button onclick="event.stopPropagation(); clearAllNotifications()" style="background: none; border: none; color: #c92a2a; font-weight: 600; cursor: pointer; font-size: 13px;">🗑️ Clear All</button>';
             container.appendChild(clearAllBtn);
         } else {
             badge.style.display = 'none';
