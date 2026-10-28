@@ -692,7 +692,7 @@
             console.log('📂 Fetching entry:', formId, entryId);
 
             // Note: Bearer token needs to be added here
-            const COGNITO_BEARER_TOKEN = "REPLACE_WITH_YOUR_BEARER_TOKEN"; // ⭐ Same token as form submission
+            const COGNITO_BEARER_TOKEN = "eyJhbGciOiJIUzI1NiIsImtpZCI6Ijg4YmYzNWNmLWM3ODEtNDQ3ZC1hYzc5LWMyODczMjNkNzg3ZCIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25JZCI6Ijc1MzExYjUwLTcwOTctNDA3ZC1iMzMzLTU4OTIzMzY4OTFhOCIsImludGVncmF0aW9uSWQiOiJhMWM2OGEwNi01NWQ1LTRjMmEtOTE2ZC01MWIyOWQ5YmQzNjIiLCJjbGllbnRJZCI6IjNkZTNmODMwLWNiYzctNDZlNi1iOTZlLTVmMDE2NzcyMTgzMCIsImp0aSI6ImVhMmJhODNiLWY0MjItNDFlZS1iMGQzLTdjYjYwMjQwNDNkNiIsImlhdCI6MTc5MjUwMzM4OSwiaXNzIjoiaHR0cHM6Ly93d3cuY29nbml0b2Zvcm1zLmNvbS8iLCJhdWQiOiJhcGkifQ._2NESkALovTEsv9IdO9CU_Q86drp5ENoVWFKmQ7eibg"; // ⭐ Same token as form submission
 
             const response = await fetch(`https://www.cognitoforms.com/api/forms/${formId}/entries/${entryId}`, {
                 method: 'GET',
