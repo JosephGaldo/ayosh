@@ -220,6 +220,25 @@
                     </tbody>
                 </table>
             </div>
+            <!-- Pagination Controls -->
+            <div style="padding: 20px 30px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #eeeeee; background-color: #f8f9fa;">
+                <div style="font-size: 13px; color: #666666; font-weight: 600;">
+                    Showing <span id="paginationRecordStart">1</span>-<span id="paginationRecordEnd">5</span> of <span id="paginationRecordTotal">0</span> records
+                </div>
+                <div style="display: flex; gap: 15px; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label style="font-size: 12px; color: #666666; font-weight: 600;">Rows per page:</label>
+                        <select id="rowsPerPageSelect" class="form-control" onchange="changeRowsPerPage()" style="min-width: 80px;">
+                            <option value="5">5</option>
+                            <option value="10">10</option>
+                            <option value="15">15</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-secondary" onclick="previousPage()" style="padding: 8px 15px; font-size: 12px;">← Previous</button>
+                    <span id="paginationPageInfo" style="font-size: 12px; color: #666666; font-weight: 600; min-width: 80px; text-align: center;">Page 1</span>
+                    <button class="btn btn-secondary" onclick="nextPage()" style="padding: 8px 15px; font-size: 12px;">Next →</button>
+                </div>
+            </div>
         </section>
     </main>
 
@@ -259,6 +278,9 @@
     let activeFieldSort = "docType";
     let currentSortAscending = true;
     let globalActiveIndex = null;
+    let currentPage = 1;
+    let rowsPerPage = 5;
+    let allFilteredRecords = [];
     const MOCKAPI_URL = "https://6ad258cd66cd28aed82dea43.mockapi.io/submissions";
 
     function openModal(modalId) { document.getElementById(modalId).style.display = 'flex'; }
@@ -347,6 +369,43 @@
         activeFieldSort = 'docType';
         currentSortAscending = true;
         applyFiltersAndSort();
+    }
+
+    // --- PAGINATION FUNCTIONS ---
+    function changeRowsPerPage() {
+        rowsPerPage = parseInt(document.getElementById('rowsPerPageSelect').value);
+        currentPage = 1;
+        updatePaginationControls();
+        renderTableMatrix(allFilteredRecords);
+    }
+
+    function previousPage() {
+        if (currentPage > 1) {
+            currentPage--;
+            updatePaginationControls();
+            renderTableMatrix(allFilteredRecords);
+        }
+    }
+
+    function nextPage() {
+        const totalPages = Math.ceil(allFilteredRecords.length / rowsPerPage);
+        if (currentPage < totalPages) {
+            currentPage++;
+            updatePaginationControls();
+            renderTableMatrix(allFilteredRecords);
+        }
+    }
+
+    function updatePaginationControls() {
+        const totalRecords = allFilteredRecords.length;
+        const totalPages = Math.ceil(totalRecords / rowsPerPage);
+        const startRecord = (currentPage - 1) * rowsPerPage + 1;
+        const endRecord = Math.min(currentPage * rowsPerPage, totalRecords);
+
+        document.getElementById('paginationRecordStart').textContent = totalRecords === 0 ? 0 : startRecord;
+        document.getElementById('paginationRecordEnd').textContent = endRecord;
+        document.getElementById('paginationRecordTotal').textContent = totalRecords;
+        document.getElementById('paginationPageInfo').textContent = `Page ${currentPage} of ${totalPages}`;
     }
 
     // --- DYNAMIC SEVERITY ALERT CALCULATION PANEL MATRIX ENGINE ---
@@ -443,7 +502,10 @@
                 return currentSortAscending ? valA.localeCompare(valB) : valB.localeCompare(valA);
             });
 
+            allFilteredRecords = records;
+            currentPage = 1;
             updateTableHeaders();
+            updatePaginationControls();
             evaluateExpirationAlerts(allSubmissions.filter(doc => doc.branch === activeBranch));
             renderTableMatrix(records);
         } catch (error) {
@@ -460,7 +522,12 @@
             return;
         }
 
-        records.forEach(doc => {
+        const totalPages = Math.ceil(records.length / rowsPerPage);
+        const startIdx = (currentPage - 1) * rowsPerPage;
+        const endIdx = startIdx + rowsPerPage;
+        const paginatedRecords = records.slice(startIdx, endIdx);
+
+        paginatedRecords.forEach(doc => {
             let badgeClass = "status-pending";
             if (doc.status === "approved") badgeClass = "status-approved";
             if (doc.status === "declined") badgeClass = "status-declined";
