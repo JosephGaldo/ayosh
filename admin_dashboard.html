@@ -536,16 +536,25 @@
     }
 
     // *** UPDATED: Notifications - Session-Only Dismiss (No localStorage) ***
-    let sessionDismissedNotifs = []; // Track dismissed notifications in current session only
+    // Track dismissed notifications using sessionStorage (persists during page refresh, clears on tab close)
+    function getDismissedNotifications() {
+        const stored = sessionStorage.getItem('ayosh_dismissed_notifs');
+        return stored ? JSON.parse(stored) : [];
+    }
+
+    function saveDismissedNotifications(list) {
+        sessionStorage.setItem('ayosh_dismissed_notifs', JSON.stringify(list));
+    }
 
     function buildStreamNotifications(submissions) {
         const badge = document.getElementById('notifCountBadge');
         const container = document.getElementById('notifPanelContents');
+        const dismissedList = getDismissedNotifications();
 
-        // Filter only NEW pending items excluding session-dismissed ones and those with admin feedback
+        // Filter only NEW pending items excluding dismissed ones and those with admin feedback
         const pendingItems = submissions.filter(d =>
             d.status === "pending" &&
-            !sessionDismissedNotifs.includes(d.id.toString()) &&
+            !dismissedList.includes(d.id.toString()) &&
             (!d.adminRemarks || d.adminRemarks.trim() === '')
         );
 
@@ -578,12 +587,14 @@
     }
 
     function dismissNotification(submissionId) {
-        // Add to session-only dismissed list (no localStorage)
-        if (!sessionDismissedNotifs.includes(submissionId.toString())) {
-            sessionDismissedNotifs.push(submissionId.toString());
+        // Add to sessionStorage dismissed list
+        const dismissedList = getDismissedNotifications();
+        if (!dismissedList.includes(submissionId.toString())) {
+            dismissedList.push(submissionId.toString());
+            saveDismissedNotifications(dismissedList);
         }
 
-        // Remove from UI
+        // Animate out
         const notifEl = document.getElementById(`notif-${submissionId}`);
         if (notifEl) {
             notifEl.style.animation = 'slideOut 0.3s ease-out';
@@ -592,25 +603,28 @@
             }, 300);
         }
 
-        // Update badge count
-        const badge = document.getElementById('notifCountBadge');
-        const currentCount = parseInt(badge.textContent) || 0;
-        if (currentCount > 1) {
-            badge.textContent = currentCount - 1;
-        } else {
-            badge.style.display = 'none';
-        }
+        // Update badge count and panel (keep panel open)
+        setTimeout(() => {
+            const badge = document.getElementById('notifCountBadge');
+            const currentCount = parseInt(badge.textContent) || 0;
+            if (currentCount > 1) {
+                badge.textContent = currentCount - 1;
+            } else {
+                badge.style.display = 'none';
+            }
+        }, 300);
     }
 
     function clearAllNotifications() {
-        // Get all notifications and add to session-only dismissed list
+        // Get all notifications and add to sessionStorage dismissed list
         const container = document.getElementById('notifPanelContents');
         const notifs = container.querySelectorAll('[id^="notif-"]');
+        const dismissedList = getDismissedNotifications();
 
         notifs.forEach(notif => {
             const id = notif.id.replace('notif-', '');
-            if (!sessionDismissedNotifs.includes(id)) {
-                sessionDismissedNotifs.push(id);
+            if (!dismissedList.includes(id)) {
+                dismissedList.push(id);
             }
             notif.style.animation = 'slideOut 0.3s ease-out';
             setTimeout(() => {
@@ -618,6 +632,7 @@
             }, 300);
         });
 
+        saveDismissedNotifications(dismissedList);
         document.getElementById('notifCountBadge').style.display = 'none';
     }
 
